@@ -77,8 +77,9 @@ const main = async () => {
 
       const TODO_FIX_THIS = ["CMPT", "MATH", "MACM"];
 
-      const requiredCourses = TODO_FIX_THIS.map((DEPT) => {
-        const matcher = /CMPT\s*[1-9][0-9]{2}/;
+      const requiredCourses = new Set(TODO_FIX_THIS.map((DEPT) => {
+        // const matcher = /CMPT\s*[1-9][0-9]{2}/
+        const matcher = new RegExp(`${DEPT}\\s*[1-9][0-9]{2}`)
         const required = [
           matcher.exec(prerequisites),
           matcher.exec(corequisites),
@@ -87,7 +88,7 @@ const main = async () => {
           .map((x) => x[0]);
 
         return required;
-      }).flat();
+      }).flat());
 
       console.log(value, year, term, requiredCourses);
     }
