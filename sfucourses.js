@@ -12,18 +12,22 @@ const CURRENT_YEAR = new Date().getFullYear();
 let sfuDepartments = [];
 
 const getSFUDepartments = async () => {
-  return (
+  if (sfuDepartments.length > 0) {
+    return sfuDepartments;
+  }
+
+  sfuDepartments = (
     await axios.get(
       "https://www.sfu.ca/bin/wcm/course-outlines?current/current"
     )
   ).data.map(({ value }) => value);
+  return sfuDepartments;
 };
 
 const generateCourseNameMatcher = async () => {
-  if (sfuDepartments.length === 0) {
-    sfuDepartments = await getSFUDepartments();
-  }
-  return new RegExp(`(${sfuDepartments.join("|")})\\s*([1-9][0-9]{2})`);
+  return new RegExp(
+    `(${(await getSFUDepartments()).join("|")})\\s*([1-9][0-9]{2})`
+  );
 };
 
 const matchCourseString = async (text) => {
