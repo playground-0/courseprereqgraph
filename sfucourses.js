@@ -208,9 +208,10 @@ const identifyDepartmentCourses = async (department = "cmpt", window = 12) => {
   const courses = (
     await Promise.all(
       (
-        await generateTermWindow()
+        await generateTermWindow([CURRENT_TERM, CURRENT_YEAR], window)
       ).map(
-        async ([term, year]) => await getDepartmentCourses(year, term, "cmpt")
+        async ([term, year]) =>
+          await getDepartmentCourses(year, term, department)
       )
     )
   ).flat();
