@@ -309,9 +309,10 @@ const main = async () => {
     "cmpt",
     [{ department: "mse", courseNumber: "110" }]
   );
+
   [...cmptRequirementGraph.entries()].forEach(([key, value]) => {
     console.log(`> ${key}`);
-    console.log(`  ${value}`);
+    console.log(`  ${JSON.stringify(value, null, 4)}`);
     console.log("");
   });
 };
