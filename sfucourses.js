@@ -258,14 +258,19 @@ const calculateRequirementsGraph = async (
     department,
     courseNumber
   );
-  const prerequisiteList = prerequisites.map(
-    ({ department: preDepartment, courseNumber: preCourseNumber }) =>
-      generateCourseKey(preDepartment, preCourseNumber)
-  );
-  const corequisiteList = corequisites.map(
-    ({ department: preDepartment, courseNumber: preCourseNumber }) =>
-      generateCourseKey(preDepartment, preCourseNumber)
-  );
+
+  const processRequiredList = (list) => {
+    return [
+      ...new Set(
+        list.map(
+          ({ department: preDepartment, courseNumber: preCourseNumber }) =>
+            generateCourseKey(preDepartment, preCourseNumber)
+        )
+      ),
+    ];
+  };
+  const prerequisiteList = processRequiredList(prerequisites);
+  const corequisiteList = processRequiredList(corequisites);
 
   graph.set(courseKey, {
     prerequisites: prerequisiteList,
