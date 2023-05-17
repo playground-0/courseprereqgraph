@@ -11,6 +11,14 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 let sfuDepartments = [];
 
+const generateCourseKey = (department = "cmpt", courseNumber = "999") =>
+  `${department} ${courseNumber}`;
+
+const extractCourseKey = (courseKey = generateCourseKey("cmpt", "999")) => {
+  const [department, courseNumber] = courseKey.split(" ");
+  return { department, courseNumber };
+};
+
 const getSFUDepartments = async () => {
   if (sfuDepartments.length > 0) {
     return sfuDepartments;
@@ -26,7 +34,7 @@ const getSFUDepartments = async () => {
 
 const generateCourseNameMatcher = async () => {
   return new RegExp(
-    `(${(await getSFUDepartments()).join("|")})\\s*([1-9][0-9]{2})`
+    `(${(await getSFUDepartments()).join("|")})\\s*([1-9][0-9]{2}w?)`
   );
 };
 
@@ -38,6 +46,14 @@ const matchCourseString = async (text) => {
       courseNumber,
     })
   );
+};
+
+const matchCourseNumber = (text) => {
+  const match = /([1-9][0-9]{2})w?/.exec(text);
+  if (match) {
+    return Number(match[1]);
+  }
+  return null;
 };
 
 const generateTermWindow = (
@@ -86,39 +102,54 @@ const findLatestCourseSection = async (
       return { term, year, section: sections[0] };
     }
   }
-  return { term, year, section: undefined };
+  return { term: undefined, year: undefined, section: undefined };
 };
+
+const courseOutlines = new Map();
 
 const findLatestCourseOutline = async (
   department = "cmpt",
   courseNumber = "130"
 ) => {
+  const courseKey = generateCourseKey(department, courseNumber);
+  if (courseOutlines.has(courseKey)) {
+    return courseOutlines.get(courseKey);
+  }
+
   const { term, year, section } = await findLatestCourseSection(
     department,
     courseNumber
   );
+
   if (section) {
     const { value } = section;
-    const outline = await getCourseOutline(
-      year,
-      term,
-      department,
-      courseNumber,
-      value
-    );
-    return outline.data;
+    const outline = (
+      await getSectionedCourseOutline(
+        year,
+        term,
+        department,
+        courseNumber,
+        value
+      )
+    ).data;
+    courseOutlines.set(courseKey, outline);
+    return outline;
   }
-  return {};
+
+  courseOutlines.set(courseKey, false);
+  return false;
 };
 
-const getCourses = async (
+const getDepartmentCourses = async (
   year = 2023,
   term = "summer",
   department = "cmpt"
 ) => {
-  return axios.get(
-    `https://www.sfu.ca/bin/wcm/course-outlines?${year}/${term}/${department}`
-  );
+  return (
+    await axios.get(
+      `https://www.sfu.ca/bin/wcm/course-outlines?${year}/${term}/${department}`
+    )
+  ).data.map(({ value }) => ({ department, courseNumber: value }));
 };
 
 const getCourseSections = async (
@@ -128,7 +159,6 @@ const getCourseSections = async (
   courseNumber = "999"
 ) => {
   try {
-    console.log("hello");
     const response = await axios.get(
       `https://www.sfu.ca/bin/wcm/course-outlines?${year}/${term}/${department}/${courseNumber}`
     );
@@ -140,7 +170,7 @@ const getCourseSections = async (
   }
 };
 
-const getCourseOutline = async (
+const getSectionedCourseOutline = async (
   year = 2023,
   term = "summer",
   department = "cmpt",
@@ -152,98 +182,138 @@ const getCourseOutline = async (
   );
 };
 
-const generateCourseKey = (department = "cmpt", courseNumber = "999") =>
-  `${department}.${courseNumber}`;
-
-const extractCourseData = (courseKey = generateCourseKey("cmpt", "999")) => {
-  const [department, courseNumber] = courseKey.split(".");
-  return { department, courseNumber };
-};
-
-const getCourseRequirements = async (
+const findCourseRequisites = async (
   department = "cmpt",
-  courseNumber = "999",
-  mostRecentOfferings = new Map()
+  courseNumber = "130"
 ) => {
-  const courseKey = generateCourseKey(department, courseNumber);
-  if (mostRecentOfferings.has(courseKey)) {
-    const { year, term } = mostRecentOfferings.get(courseKey);
-  } else {
-    mostRecentOfferings.set(courseKey, { year, term });
+  const outline = await findLatestCourseOutline(department, courseNumber);
+  if (!outline) {
+    return {
+      prerequisites: [],
+      corequisites: [],
+    };
   }
 
-  const sections = await getCourseSections();
+  const {
+    info: { prerequisites, corequisites },
+  } = outline;
+
+  return {
+    prerequisites: await matchCourseString(prerequisites),
+    corequisites: await matchCourseString(corequisites),
+  };
+};
+
+const identifyDepartmentCourses = async (department = "cmpt", window = 12) => {
+  const courses = (
+    await Promise.all(
+      (
+        await generateTermWindow()
+      ).map(
+        async ([term, year]) => await getDepartmentCourses(year, term, "cmpt")
+      )
+    )
+  ).flat();
+
+  const courseMap = new Map();
+
+  courses.forEach((offering) => {
+    const { department, courseNumber } = offering;
+    const key = generateCourseKey(department, courseNumber);
+    if (!courseMap.has(key)) {
+      courseMap.set(key, offering);
+    }
+  });
+
+  const courseList = [...courseMap.values()];
+  courseList.sort((a, b) => {
+    // Reversed
+    const { courseNumber: courseANumber } = a;
+    const { courseNumber: courseBNumber } = b;
+
+    return matchCourseNumber(courseBNumber) - matchCourseNumber(courseANumber);
+  });
+  return courseList;
+};
+
+const calculateRequirementsGraph = async (
+  department,
+  courseNumber,
+  graph = new Map(),
+  log = false,
+  level = 0
+) => {
+  const courseKey = generateCourseKey(department, courseNumber);
+
+  if (log) {
+    console.log(`${" ".repeat(level)}Processing`, department, courseNumber);
+  }
+
+  if (graph.has(courseKey)) {
+    // Skip
+    return graph;
+  }
+
+  const { prerequisites, corequisites } = await findCourseRequisites(
+    department,
+    courseNumber
+  );
+  const prerequisiteList = prerequisites.map(
+    ({ department: preDepartment, courseNumber: preCourseNumber }) =>
+      generateCourseKey(preDepartment, preCourseNumber)
+  );
+  const corequisiteList = corequisites.map(
+    ({ department: preDepartment, courseNumber: preCourseNumber }) =>
+      generateCourseKey(preDepartment, preCourseNumber)
+  );
+
+  graph.set(courseKey, {
+    prerequisites: prerequisiteList,
+    corequisites: corequisiteList,
+  });
+
+  for (const courseList of [prerequisiteList, corequisiteList]) {
+    for (const reqCourseKey of courseList) {
+      const { department: reqDepartment, courseNumber: reqCourseNumber } =
+        extractCourseKey(reqCourseKey);
+      await calculateRequirementsGraph(
+        reqDepartment,
+        reqCourseNumber,
+        graph,
+        log,
+        level + 1
+      );
+    }
+  }
+
+  return graph;
+};
+
+const calculateDepartmentRequirementGraph = async (
+  department = "cmpt",
+  extraCourses = []
+) => {
+  const graph = new Map();
+  const courses = (await identifyDepartmentCourses(department)).concat(
+    extraCourses
+  );
+
+  for (const { department: courseDepartment, courseNumber } of courses) {
+    await calculateRequirementsGraph(courseDepartment, courseNumber, graph);
+  }
+  return graph;
 };
 
 const main = async () => {
-  const x = await findLatestCourseOutline("cmpt", "307");
-  const {
-    info: { prerequisites, corequisites },
-  } = x;
-  console.log(x, prerequisites, corequisites);
-  console.log(
-    await matchCourseString(prerequisites),
-    await matchCourseString(corequisites)
+  const cmptRequirementGraph = await calculateDepartmentRequirementGraph(
+    "cmpt",
+    [{ department: "mse", courseNumber: "110" }]
   );
-  // const coursesAvailability = await Promise.all(
-  //   [
-  //     ["2022", "spring"],
-  //     ["2022", "summer"],
-  //     ["2022", "fall"],
-  //     ["2023", "spring"],
-  //     ["2023", "summer"],
-  //   ]
-  //     .reverse() // Later offerings should have more accurate requisite information
-  //     .map(async ([year, term]) => {
-  //       const courses = (await getCourses(year, term)).data;
-  //       return [year, term, courses];
-  //     })
-  // );
-
-  // const latestCourseOfferings = new Map();
-
-  // coursesAvailability.forEach(([year, term, coursesData]) => {
-  //   coursesData.forEach(({ value, title }) => {
-  //     if (!latestCourseOfferings.has(value)) {
-  //       latestCourseOfferings.set(value, { value, year, term });
-  //     }
-  //   });
-  // });
-
-  // latestCourseOfferings.forEach(async (offering) => {
-  //   const { value, year, term } = offering;
-  //   const sections = (
-  //     await getCourseSections(year, term, "cmpt", value)
-  //   ).data.filter(({ sectionCode }) => sectionCode === "LEC");
-
-  //   if (sections.length > 0) {
-  //     const courseSection = sections[0].value;
-  //     const courseSectionData = (
-  //       await getCourseOutline(year, term, "cmpt", value, courseSection)
-  //     ).data;
-
-  //     const { prerequisites, corequisites } = courseSectionData.info;
-
-  //     const TODO_FIX_THIS = ["CMPT", "MATH", "MACM"];
-
-  //     const requiredCourses = new Set(
-  //       TODO_FIX_THIS.map((DEPT) => {
-  //         // const matcher = /CMPT\s*[1-9][0-9]{2}/
-  //         const matcher = new RegExp(`${DEPT}\\s*[1-9][0-9]{2}`);
-  //         const required = [
-  //           matcher.exec(prerequisites),
-  //           matcher.exec(corequisites),
-  //         ]
-  //           .filter((x) => x !== null)
-  //           .map((x) => x[0]);
-
-  //         return required;
-  //       }).flat()
-  //     );
-
-  //     console.log(value, year, term, requiredCourses);
-  //   }
-  // });
+  [...cmptRequirementGraph.entries()].forEach(([key, value]) => {
+    console.log(`> ${key}`);
+    console.log(`  ${value}`);
+    console.log("");
+  });
 };
 
 main();
