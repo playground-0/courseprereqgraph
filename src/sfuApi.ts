@@ -49,3 +49,16 @@ async function cachedGet(url: string): Promise<AxiosResponse | undefined> {
     return undefined;
   }
 }
+
+// Clean up when starting the program
+function onLoad() {
+  const urls = accessCache.keys();
+  const now = new Date();
+  for (const url of urls) {
+    if (isExistingCacheItemInvalidated([url, now])) {
+      accessCache.delete(url);
+    }
+  }
+}
+
+onLoad();
