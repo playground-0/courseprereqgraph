@@ -2,6 +2,8 @@
 
 const { default: axios } = require("axios");
 
+const axiosCache = new Map();
+
 const SPRING = "spring";
 const SUMMER = "summer";
 const FALL = "fall";
