@@ -3,6 +3,7 @@ import fs from "fs";
 
 type Url = string;
 type AccessKey = [Url, Date];
+type AxiosTimedCache = Map<Url, CacheObject>;
 
 interface CacheObject {
   storedAt: Date;
@@ -10,7 +11,7 @@ interface CacheObject {
 }
 
 const CACHE_LIFETIME = 1000 * 60 * 60 * 24 * 7 * 2; // 2 weeks in milliseconds
-const accessCache: Map<Url, CacheObject> = new Map(); // TODO: Persist this to disk
+const accessCache: AxiosTimedCache = new Map(); // TODO: Persist this to disk
 
 const isLifetimeExpired = (storedAt: Date, current: Date): boolean => {
   return current.getTime() - storedAt.getTime() > CACHE_LIFETIME;
@@ -25,13 +26,21 @@ const isExistingCacheItemInvalidated = ([url, time]: AccessKey): boolean => {
   return isLifetimeExpired(existing.storedAt, time);
 };
 
+function persistCache() {
+  // TODO
+}
+
 const cacheStore = ([url, time]: AccessKey, response: AxiosResponse) => {
   if (isExistingCacheItemInvalidated([url, time])) {
     accessCache.set(url, { response, storedAt: time });
+    persistCache();
   }
 };
 
-const cacheInvalidate = (url: Url) => accessCache.delete(url);
+const cacheInvalidate = (url: Url) => {
+  accessCache.delete(url);
+  persistCache();
+};
 
 async function cachedGet(url: string): Promise<AxiosResponse | undefined> {
   const time = new Date();
