@@ -52,6 +52,7 @@ async function cachedGet(url: string): Promise<AxiosResponse | undefined> {
 
 // Clean up when starting the program
 function onLoad() {
+  // TODO: Load from disk
   const urls = accessCache.keys();
   const now = new Date();
   for (const url of urls) {
